@@ -18,16 +18,14 @@ namespace TelegramDoctorBot
     {
         private static TelegramBotClient? botClient;
         private static Dictionary<long, UserState> userStates = new Dictionary<long, UserState>();
-                    //твой строка подключение
+//твой строка подключение
         private static string connectionString = "Data Source=localhost;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True";
-                    //__________________________________________________________________________________________________________________________________
+//__________________________________________________________________________________________________________________________________
         static async Task Main(string[] args)
         {
-            //твой токен
+//твой токен
             botClient = new TelegramBotClient("токен");
-            //__________________________________________________________________________________________________________________________________
-
-
+ //__________________________________________________________________________________________________________________________________
 
             var receiverOptions = new ReceiverOptions
             {
@@ -159,15 +157,14 @@ namespace TelegramDoctorBot
                     case Step.SelectTime:
                         if (TimeSpan.TryParse(messageText, out var selectedTime))
                         {
-                            var visitDateTime = userState.SelectedDate.Date.Add(selectedTime);
-                            if (await IsTimeSlotAvailable(userState.DoctorId, visitDateTime))
+                            userState.VisitDateTime = userState.SelectedDate.Date.Add(selectedTime);
+                            if (await IsTimeSlotAvailable(userState.DoctorId, userState.VisitDateTime))
                             {
-                                await CreateVisit(userState.PatientId, userState.DoctorId, visitDateTime);
                                 await botClient.SendTextMessageAsync(
                                     chatId: chatId,
-                                    text: $"Вы успешно записаны на {visitDateTime:dd.MM.yyyy} в {visitDateTime:HH:mm}!",
+                                    text: "Введите примечание к записи (или нажмите /skip чтобы пропустить):",
                                     cancellationToken: cancellationToken);
-                                userStates.Remove(chatId);
+                                userState.CurrentStep = Step.EnterNotes;
                             }
                             else
                             {
@@ -184,6 +181,27 @@ namespace TelegramDoctorBot
                                 text: "Неверный формат времени. Пожалуйста, выберите время из списка:",
                                 cancellationToken: cancellationToken);
                         }
+                        break;
+
+                    case Step.EnterNotes:
+                        // Если пользователь ввел /skip, оставляем Notes пустым
+                        userState.Notes = messageText.Equals("/skip", StringComparison.OrdinalIgnoreCase) 
+                            ? null 
+                            : messageText;
+
+                        await CreateVisit(
+                            userState.PatientId, 
+                            userState.DoctorId, 
+                            userState.VisitDateTime,
+                            userState.Notes);
+
+                        await botClient.SendTextMessageAsync(
+                            chatId: chatId,
+                            text: $"Вы успешно записаны на {userState.VisitDateTime:dd.MM.yyyy} в {userState.VisitDateTime:HH:mm}!\n" +
+                                 $"Примечание: {(userState.Notes ?? "не указано")}",
+                            cancellationToken: cancellationToken);
+                        
+                        userStates.Remove(chatId);
                         break;
                 }
             }
@@ -352,13 +370,19 @@ namespace TelegramDoctorBot
             }
         }
 
-        private static async Task CreateVisit(int patientId, int doctorId, DateTime visitDateTime)
+        private static async Task CreateVisit(int patientId, int doctorId, DateTime visitDateTime, string? notes)
         {
             using (var connection = new SqlConnection(connectionString))
             {
                 await connection.ExecuteAsync(
-                    "INSERT INTO Visits (PatientID, EmployeeID, VisitDateTime) VALUES (@PatientId, @DoctorId, @VisitDateTime)",
-                    new { PatientId = patientId, DoctorId = doctorId, VisitDateTime = visitDateTime });
+                    "INSERT INTO Visits (PatientID, EmployeeID, VisitDateTime, Notes) " +
+                    "VALUES (@PatientId, @DoctorId, @VisitDateTime, @Notes)",
+                    new { 
+                        PatientId = patientId, 
+                        DoctorId = doctorId, 
+                        VisitDateTime = visitDateTime,
+                        Notes = notes
+                    });
             }
         }
     }
@@ -371,6 +395,8 @@ namespace TelegramDoctorBot
         public string Specialty { get; set; } = null!;
         public int DoctorId { get; set; }
         public DateTime SelectedDate { get; set; }
+        public DateTime VisitDateTime { get; set; }
+        public string? Notes { get; set; }
     }
 
     public enum Step
@@ -380,7 +406,8 @@ namespace TelegramDoctorBot
         SelectSpecialty,
         SelectDoctor,
         SelectDate,
-        SelectTime
+        SelectTime,
+        EnterNotes
     }
 
     public class Person

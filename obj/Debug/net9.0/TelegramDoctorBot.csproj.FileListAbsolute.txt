@@ -65,3 +65,4 @@ C:\Users\radik\TelegramDoctorBot\obj\Debug\net9.0\refint\TelegramDoctorBot.dll
 C:\Users\radik\TelegramDoctorBot\obj\Debug\net9.0\TelegramDoctorBot.pdb
 C:\Users\radik\TelegramDoctorBot\obj\Debug\net9.0\TelegramDoctorBot.genruntimeconfig.cache
 C:\Users\radik\TelegramDoctorBot\obj\Debug\net9.0\ref\TelegramDoctorBot.dll
+C:\Users\radik\TelegramDoctorBot\obj\Debug\net9.0\TelegramDoctorBot.sourcelink.json
