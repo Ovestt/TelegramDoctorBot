@@ -18,14 +18,16 @@ namespace TelegramDoctorBot
     {
         private static TelegramBotClient? botClient;
         private static Dictionary<long, UserState> userStates = new Dictionary<long, UserState>();
-//твой строка подключение
+        private static Dictionary<long, long> chatIdToPatientIdMap = new Dictionary<long, long>();
+        private static Timer? notificationTimer;
+        
         private static string connectionString = "Data Source=localhost;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True";
-//__________________________________________________________________________________________________________________________________
+
         static async Task Main(string[] args)
         {
-//твой токен
-            botClient = new TelegramBotClient("токен");
- //__________________________________________________________________________________________________________________________________
+            botClient = new TelegramBotClient("7572873116:AAEtNynXkd_kd1Kd_3S8DbjPxBG5b7vWYCY");
+
+            notificationTimer = new Timer(CheckCompletedVisits, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
             var receiverOptions = new ReceiverOptions
             {
@@ -44,6 +46,50 @@ namespace TelegramDoctorBot
 
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
+            
+            notificationTimer?.Dispose();
+        }
+
+        private static async void CheckCompletedVisits(object? state)
+        {
+            try
+            {
+                using (var connection = new SqlConnection(connectionString))
+                {
+                    var completedVisits = await connection.QueryAsync<CompletedVisit>(
+                        @"SELECT v.VisitID, v.PatientID, v.EmployeeID, v.VisitDateTime, v.EndDateTime, v.Notes, 
+                                 p.FirstName, p.LastName, p.MiddleName, u.FIO as DoctorName
+                          FROM Visits v
+                          JOIN Persons p ON v.PatientID = p.ID
+                          JOIN UserCredentialsDB u ON v.EmployeeID = u.UserID
+                          WHERE v.EndDateTime IS NOT NULL 
+                          AND v.NotificationSent = 0");
+
+                    foreach (var visit in completedVisits)
+                    {
+
+                        var chatIdEntry = chatIdToPatientIdMap.FirstOrDefault(x => x.Value == visit.PatientID);
+                        if (chatIdEntry.Key != 0)
+                        {
+                            await botClient!.SendTextMessageAsync(
+                                chatId: chatIdEntry.Key,
+                                text: $"📢 Ваш визит к врачу {visit.DoctorName} завершен.\n" +
+                                      $"📅 Дата: {visit.VisitDateTime:dd.MM.yyyy}\n" +
+                                      $"⏱ Время приема: {visit.VisitDateTime:HH:mm}-{visit.EndDateTime:HH:mm}\n" +
+                                      $"💬 Примечание: {(visit.Notes ?? "не указано")}",
+                                cancellationToken: CancellationToken.None);
+
+                            await connection.ExecuteAsync(
+                                "UPDATE Visits SET NotificationSent = 1 WHERE VisitID = @VisitID",
+                                new { VisitID = visit.VisitID });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in CheckCompletedVisits: {ex.Message}");
+            }
         }
 
         private static async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
@@ -83,6 +129,10 @@ namespace TelegramDoctorBot
                             {
                                 userState.PatientId = patient.ID;
                                 userState.Snils = messageText;
+                                
+                                // Сохраняем соответствие chatId и PatientId для уведомлений
+                                chatIdToPatientIdMap[chatId] = patient.ID;
+                                
                                 await ShowSpecialties(chatId, cancellationToken);
                                 userState.CurrentStep = Step.SelectSpecialty;
                             }
@@ -102,6 +152,8 @@ namespace TelegramDoctorBot
                                 cancellationToken: cancellationToken);
                         }
                         break;
+
+
 
                     case Step.SelectSpecialty:
                         var specialties = await GetSpecialties();
@@ -375,8 +427,8 @@ namespace TelegramDoctorBot
             using (var connection = new SqlConnection(connectionString))
             {
                 await connection.ExecuteAsync(
-                    "INSERT INTO Visits (PatientID, EmployeeID, VisitDateTime, Notes) " +
-                    "VALUES (@PatientId, @DoctorId, @VisitDateTime, @Notes)",
+                    "INSERT INTO Visits (PatientID, EmployeeID, VisitDateTime, Notes, NotificationSent) " +
+                    "VALUES (@PatientId, @DoctorId, @VisitDateTime, @Notes, 0)",
                     new { 
                         PatientId = patientId, 
                         DoctorId = doctorId, 
@@ -385,6 +437,21 @@ namespace TelegramDoctorBot
                     });
             }
         }
+    }
+
+    public class CompletedVisit
+    {
+        public int VisitID { get; set; }
+        public int PatientID { get; set; }
+        public int EmployeeID { get; set; }
+        public DateTime VisitDateTime { get; set; }
+        public DateTime EndDateTime { get; set; }
+        public string? Notes { get; set; }
+        public string FirstName { get; set; } = null!;
+        public string LastName { get; set; } = null!;
+        public string? MiddleName { get; set; }
+        public string DoctorName { get; set; } = null!;
+    }
     }
 
     public class UserState
