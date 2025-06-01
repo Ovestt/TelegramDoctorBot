@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\radik\\TelegramDoctorBot\\TelegramDoctorBot.csproj": {}
+    "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\TelegramDoctorBot.csproj": {}
   },
   "projects": {
-    "C:\\Users\\radik\\TelegramDoctorBot\\TelegramDoctorBot.csproj": {
+    "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\TelegramDoctorBot.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\radik\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
+        "projectUniqueName": "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
         "projectName": "TelegramDoctorBot",
-        "projectPath": "C:\\Users\\radik\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
+        "projectPath": "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
         "packagesPath": "C:\\Users\\radik\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\radik\\TelegramDoctorBot\\obj\\",
+        "outputPath": "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

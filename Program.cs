@@ -21,11 +21,11 @@ namespace TelegramDoctorBot
         private static Dictionary<long, long> chatIdToPatientIdMap = new Dictionary<long, long>();
         private static Timer? notificationTimer;
         
-        private static string connectionString = "Data Source=localhost;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True";
+        private static string connectionString = "база";
 
         static async Task Main(string[] args)
         {
-            botClient = new TelegramBotClient("7572873116:AAEtNynXkd_kd1Kd_3S8DbjPxBG5b7vWYCY");
+            botClient = new TelegramBotClient("токен");
 
             notificationTimer = new Timer(CheckCompletedVisits, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
 
@@ -73,10 +73,10 @@ namespace TelegramDoctorBot
                         {
                             await botClient!.SendTextMessageAsync(
                                 chatId: chatIdEntry.Key,
-                                text: $"📢 Ваш визит к врачу {visit.DoctorName} завершен.\n" +
-                                      $"📅 Дата: {visit.VisitDateTime:dd.MM.yyyy}\n" +
-                                      $"⏱ Время приема: {visit.VisitDateTime:HH:mm}-{visit.EndDateTime:HH:mm}\n" +
-                                      $"💬 Примечание: {(visit.Notes ?? "не указано")}",
+                                text: $"Ваш визит к врачу {visit.DoctorName} завершен.\n" +
+                                      $"Дата: {visit.VisitDateTime:dd.MM.yyyy}\n" +
+                                      $"Время приема: {visit.VisitDateTime:HH:mm}-{visit.EndDateTime:HH:mm}\n" +
+                                      $"Примечание: {(visit.Notes ?? "не указано")}",
                                 cancellationToken: CancellationToken.None);
 
                             await connection.ExecuteAsync(
@@ -130,7 +130,6 @@ namespace TelegramDoctorBot
                                 userState.PatientId = patient.ID;
                                 userState.Snils = messageText;
                                 
-                                // Сохраняем соответствие chatId и PatientId для уведомлений
                                 chatIdToPatientIdMap[chatId] = patient.ID;
                                 
                                 await ShowSpecialties(chatId, cancellationToken);
@@ -236,7 +235,6 @@ namespace TelegramDoctorBot
                         break;
 
                     case Step.EnterNotes:
-                        // Если пользователь ввел /skip, оставляем Notes пустым
                         userState.Notes = messageText.Equals("/skip", StringComparison.OrdinalIgnoreCase) 
                             ? null 
                             : messageText;
@@ -343,9 +341,9 @@ namespace TelegramDoctorBot
         private static async Task ShowAvailableDates(long chatId, int doctorId, CancellationToken cancellationToken)
         {
             var availableDates = new List<DateTime>();
-            for (int i = 0; i < 14; i++) // 2 недели вперед
+            for (int i = 0; i < 14; i++)
             {
-                var date = DateTime.Today.AddDays(i + 1); // Начиная с завтра
+                var date = DateTime.Today.AddDays(i + 1);
                 if (date.DayOfWeek != DayOfWeek.Sunday && date.DayOfWeek != DayOfWeek.Saturday)
                 {
                     availableDates.Add(date);
@@ -377,7 +375,7 @@ namespace TelegramDoctorBot
 
             for (var time = startTime; time < endTime; time = time.Add(new TimeSpan(0, 30, 0)))
             {
-                if (time >= lunchStart && time < lunchEnd) continue; // Пропускаем обед
+                if (time >= lunchStart && time < lunchEnd) continue;
 
                 var timeStr = time.ToString(@"hh\:mm");
                 if (!bookedTimes.Contains(timeStr))
@@ -496,4 +494,4 @@ namespace TelegramDoctorBot
         public int UserID { get; set; }
         public string FIO { get; set; } = null!;
     }
-}
+

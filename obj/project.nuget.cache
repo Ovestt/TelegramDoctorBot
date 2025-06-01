@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "TeekK9Z/AM0=",
+  "dgSpecHash": "JYmNK7p055s=",
   "success": true,
-  "projectFilePath": "C:\\Users\\radik\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
+  "projectFilePath": "C:\\Users\\radik\\OneDrive\\Рабочий стол\\all about clinic\\TelegramDoctorBot\\TelegramDoctorBot.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\radik\\.nuget\\packages\\azure.core\\1.38.0\\azure.core.1.38.0.nupkg.sha512",
     "C:\\Users\\radik\\.nuget\\packages\\azure.identity\\1.11.4\\azure.identity.1.11.4.nupkg.sha512",
