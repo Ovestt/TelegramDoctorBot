@@ -16,11 +16,11 @@ namespace TelegramDoctorBot
 {
     class Program
     {
-        private static TelegramBotClient? botClient;
+        private static TelegramBotClient botClient;
         private static Dictionary<long, UserState> userStates = new Dictionary<long, UserState>();
         private static Dictionary<long, long> chatIdToPatientIdMap = new Dictionary<long, long>();
-        private static Timer? notificationTimer;
-        
+        private static Timer notificationTimer;
+
         private static string connectionString = "база";
 
         static async Task Main(string[] args)
@@ -46,11 +46,11 @@ namespace TelegramDoctorBot
 
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
-            
+
             notificationTimer?.Dispose();
         }
 
-        private static async void CheckCompletedVisits(object? state)
+        private static async void CheckCompletedVisits(object state)
         {
             try
             {
@@ -67,17 +67,122 @@ namespace TelegramDoctorBot
 
                     foreach (var visit in completedVisits)
                     {
-
                         var chatIdEntry = chatIdToPatientIdMap.FirstOrDefault(x => x.Value == visit.PatientID);
                         if (chatIdEntry.Key != 0)
                         {
-                            await botClient!.SendTextMessageAsync(
+                            await botClient.SendTextMessageAsync(
                                 chatId: chatIdEntry.Key,
                                 text: $"Ваш визит к врачу {visit.DoctorName} завершен.\n" +
                                       $"Дата: {visit.VisitDateTime:dd.MM.yyyy}\n" +
                                       $"Время приема: {visit.VisitDateTime:HH:mm}-{visit.EndDateTime:HH:mm}\n" +
-                                      $"Примечание: {(visit.Notes ?? "не указано")}",
-                                cancellationToken: CancellationToken.None);
+                                      $"Примечание: {(visit.Notes ?? "не указано")}");
+                            var diagnoses = await connection.QueryAsync<Diagnosis>(
+                                "SELECT DiagnosisName, Description, DateCreated FROM Diagnoses " +
+                                "WHERE PatientID = @PatientID AND DoctorUserID = @DoctorID " +
+                                "AND DateCreated BETWEEN @VisitStart AND @VisitEnd",
+                                new
+                                {
+                                    PatientID = visit.PatientID,
+                                    DoctorID = visit.EmployeeID,
+                                    VisitStart = visit.VisitDateTime,
+                                    VisitEnd = visit.EndDateTime
+                                });
+
+                            if (diagnoses.Any())
+                            {
+                                var diagnosisMessage = "Поставленные диагнозы:\n" +
+                                    string.Join("\n\n", diagnoses.Select(d =>
+                                        $"• {d.DiagnosisName}\nОписание: {d.Description ?? "нет описания"}\nДата: {d.DateCreated:dd.MM.yyyy}"));
+
+                                await botClient.SendTextMessageAsync(
+                                    chatId: chatIdEntry.Key,
+                                    text: diagnosisMessage);
+                            }
+
+                            var referrals = await connection.QueryAsync<MedicalReferral>(
+                                "SELECT ReferralNumber, Purpose, Speciality, ServiceType, ReferralDate " +
+                                "FROM MedicalReferrals " +
+                                "WHERE PatientID = @PatientID AND DoctorUserID = @DoctorID " +
+                                "AND ReferralDate BETWEEN @VisitStart AND @VisitEnd",
+                                new
+                                {
+                                    PatientID = visit.PatientID,
+                                    DoctorID = visit.EmployeeID,
+                                    VisitStart = visit.VisitDateTime,
+                                    VisitEnd = visit.EndDateTime
+                                });
+
+                            if (referrals.Any())
+                            {
+                                var referralMessage = "Выданные направления:\n" +
+                                    string.Join("\n\n", referrals.Select(r =>
+                                        $"• Номер: {r.ReferralNumber}\nЦель: {r.Purpose}\n" +
+                                        $"Специальность: {r.Speciality ?? "не указана"}\n" +
+                                        $"Тип услуги: {r.ServiceType}\nДата: {r.ReferralDate:dd.MM.yyyy}"));
+
+                                await botClient.SendTextMessageAsync(
+                                    chatId: chatIdEntry.Key,
+                                    text: referralMessage);
+                            }
+
+                            var prescriptions = await connection.QueryAsync<Prescription>(
+                                "SELECT MedicationName, Dosage, IssueDate, ExpiryDate " +
+                                "FROM Prescriptions " +
+                                "WHERE PatientID = @PatientID AND DoctorUserID = @DoctorID " +
+                                "AND IssueDate BETWEEN @VisitStart AND @VisitEnd",
+                                new
+                                {
+                                    PatientID = visit.PatientID,
+                                    DoctorID = visit.EmployeeID,
+                                    VisitStart = visit.VisitDateTime,
+                                    VisitEnd = visit.EndDateTime
+                                });
+
+                            if (prescriptions.Any())
+                            {
+                                var prescriptionMessage = "Выписанные рецепты:\n" +
+                                    string.Join("\n\n", prescriptions.Select(p =>
+                                        $"• Лекарство: {p.MedicationName}\nДозировка: {p.Dosage}\n" +
+                                        $"Дата выдачи: {p.IssueDate:dd.MM.yyyy}\n" +
+                                        $"Срок действия: {(p.ExpiryDate.HasValue ? p.ExpiryDate.Value.ToString("dd.MM.yyyy") : "не указан")}"));
+
+                                await botClient.SendTextMessageAsync(
+                                    chatId: chatIdEntry.Key,
+                                    text: prescriptionMessage);
+                            }
+
+                            var sickLeaves = await connection.QueryAsync<SickLeave>(
+                                "SELECT Number, Diagnosis, StartDate, EndDate, Status, Type " +
+                                "FROM SickLeaves " +
+                                "WHERE PatientID = @PatientID AND DoctorUserID = @DoctorID " +
+                                "AND IssueDate BETWEEN @VisitStart AND @VisitEnd",
+                                new
+                                {
+                                    PatientID = visit.PatientID,
+                                    DoctorID = visit.EmployeeID,
+                                    VisitStart = visit.VisitDateTime,
+                                    VisitEnd = visit.EndDateTime
+                                });
+
+                            if (sickLeaves.Any())
+                            {
+                                var sickLeaveMessage = "Оформленные больничные листы:\n" +
+                                    string.Join("\n\n", sickLeaves.Select(s =>
+                                        $"• Номер: {s.Number}\nДиагноз: {s.Diagnosis}\n" +
+                                        $"Период: {s.StartDate:dd.MM.yyyy} - {s.EndDate:dd.MM.yyyy}\n" +
+                                        $"Статус: {s.Status}\nТип: {s.Type}"));
+
+                                await botClient.SendTextMessageAsync(
+                                    chatId: chatIdEntry.Key,
+                                    text: sickLeaveMessage);
+                            }
+
+                            if (!diagnoses.Any() && !referrals.Any() && !prescriptions.Any() && !sickLeaves.Any())
+                            {
+                                await botClient.SendTextMessageAsync(
+                                    chatId: chatIdEntry.Key,
+                                    text: "После визита врач не добавил диагнозы, направления или рецепты.");
+                            }
 
                             await connection.ExecuteAsync(
                                 "UPDATE Visits SET NotificationSent = 1 WHERE VisitID = @VisitID",
@@ -116,8 +221,7 @@ namespace TelegramDoctorBot
                     case Step.Start:
                         await botClient.SendTextMessageAsync(
                             chatId: chatId,
-                            text: "Введите ваш СНИЛС (в формате XXX-XXX-XXX XX):",
-                            cancellationToken: cancellationToken);
+                            text: "Введите ваш СНИЛС (в формате XXX-XXX-XXX XX):");
                         userState.CurrentStep = Step.EnterSnils;
                         break;
 
@@ -129,45 +233,40 @@ namespace TelegramDoctorBot
                             {
                                 userState.PatientId = patient.ID;
                                 userState.Snils = messageText;
-                                
+
                                 chatIdToPatientIdMap[chatId] = patient.ID;
-                                
-                                await ShowSpecialties(chatId, cancellationToken);
+
+                                await ShowSpecialties(chatId);
                                 userState.CurrentStep = Step.SelectSpecialty;
                             }
                             else
                             {
                                 await botClient.SendTextMessageAsync(
                                     chatId: chatId,
-                                    text: "Пациент с таким СНИЛС не найден. Попробуйте еще раз:",
-                                    cancellationToken: cancellationToken);
+                                    text: "Пациент с таким СНИЛС не найден. Попробуйте еще раз:");
                             }
                         }
                         else
                         {
                             await botClient.SendTextMessageAsync(
                                 chatId: chatId,
-                                text: "Неверный формат СНИЛС. Введите в формате XXX-XXX-XXX XX:",
-                                cancellationToken: cancellationToken);
+                                text: "Неверный формат СНИЛС. Введите в формате XXX-XXX-XXX XX:");
                         }
                         break;
-
-
 
                     case Step.SelectSpecialty:
                         var specialties = await GetSpecialties();
                         if (specialties.Contains(messageText))
                         {
                             userState.Specialty = messageText;
-                            await ShowDoctors(chatId, messageText, cancellationToken);
+                            await ShowDoctors(chatId, messageText);
                             userState.CurrentStep = Step.SelectDoctor;
                         }
                         else
                         {
                             await botClient.SendTextMessageAsync(
                                 chatId: chatId,
-                                text: "Пожалуйста, выберите специальность из списка:",
-                                cancellationToken: cancellationToken);
+                                text: "Пожалуйста, выберите специальность из списка:");
                         }
                         break;
 
@@ -177,15 +276,14 @@ namespace TelegramDoctorBot
                         if (doctor != null)
                         {
                             userState.DoctorId = doctor.UserID;
-                            await ShowAvailableDates(chatId, doctor.UserID, cancellationToken);
+                            await ShowAvailableDates(chatId, doctor.UserID);
                             userState.CurrentStep = Step.SelectDate;
                         }
                         else
                         {
                             await botClient.SendTextMessageAsync(
                                 chatId: chatId,
-                                text: "Пожалуйста, выберите врача из списка:",
-                                cancellationToken: cancellationToken);
+                                text: "Пожалуйста, выберите врача из списка:");
                         }
                         break;
 
@@ -193,15 +291,14 @@ namespace TelegramDoctorBot
                         if (DateTime.TryParse(messageText, out var selectedDate))
                         {
                             userState.SelectedDate = selectedDate;
-                            await ShowAvailableTimes(chatId, userState.DoctorId, selectedDate, cancellationToken);
+                            await ShowAvailableTimes(chatId, userState.DoctorId, selectedDate);
                             userState.CurrentStep = Step.SelectTime;
                         }
                         else
                         {
                             await botClient.SendTextMessageAsync(
                                 chatId: chatId,
-                                text: "Неверный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:",
-                                cancellationToken: cancellationToken);
+                                text: "Неверный формат даты. Пожалуйста, введите дату в формате ДД.ММ.ГГГГ:");
                         }
                         break;
 
@@ -213,44 +310,40 @@ namespace TelegramDoctorBot
                             {
                                 await botClient.SendTextMessageAsync(
                                     chatId: chatId,
-                                    text: "Введите примечание к записи (или нажмите /skip чтобы пропустить):",
-                                    cancellationToken: cancellationToken);
+                                    text: "Введите примечание к записи (или нажмите /skip чтобы пропустить):");
                                 userState.CurrentStep = Step.EnterNotes;
                             }
                             else
                             {
                                 await botClient.SendTextMessageAsync(
                                     chatId: chatId,
-                                    text: "Это время уже занято. Пожалуйста, выберите другое время:",
-                                    cancellationToken: cancellationToken);
+                                    text: "Это время уже занято. Пожалуйста, выберите другое время:");
                             }
                         }
                         else
                         {
                             await botClient.SendTextMessageAsync(
                                 chatId: chatId,
-                                text: "Неверный формат времени. Пожалуйста, выберите время из списка:",
-                                cancellationToken: cancellationToken);
+                                text: "Неверный формат времени. Пожалуйста, выберите время из списка:");
                         }
                         break;
 
                     case Step.EnterNotes:
-                        userState.Notes = messageText.Equals("/skip", StringComparison.OrdinalIgnoreCase) 
-                            ? null 
+                        userState.Notes = messageText.Equals("/skip", StringComparison.OrdinalIgnoreCase)
+                            ? null
                             : messageText;
 
                         await CreateVisit(
-                            userState.PatientId, 
-                            userState.DoctorId, 
+                            userState.PatientId,
+                            userState.DoctorId,
                             userState.VisitDateTime,
                             userState.Notes);
 
                         await botClient.SendTextMessageAsync(
                             chatId: chatId,
                             text: $"Вы успешно записаны на {userState.VisitDateTime:dd.MM.yyyy} в {userState.VisitDateTime:HH:mm}!\n" +
-                                 $"Примечание: {(userState.Notes ?? "не указано")}",
-                            cancellationToken: cancellationToken);
-                        
+                                 $"Примечание: {(userState.Notes ?? "не указано")}");
+
                         userStates.Remove(chatId);
                         break;
                 }
@@ -260,8 +353,7 @@ namespace TelegramDoctorBot
                 Console.WriteLine($"Error: {ex.Message}");
                 await botClient.SendTextMessageAsync(
                     chatId: chatId,
-                    text: "Произошла ошибка. Пожалуйста, начните заново.",
-                    cancellationToken: cancellationToken);
+                    text: "Произошла ошибка. Пожалуйста, начните заново.");
                 userStates.Remove(chatId);
             }
         }
@@ -277,7 +369,7 @@ namespace TelegramDoctorBot
             return System.Text.RegularExpressions.Regex.IsMatch(snils, @"^\d{3}-\d{3}-\d{3} \d{2}$");
         }
 
-        private static async Task<Person?> GetPatientBySnils(string snils)
+        private static async Task<Person> GetPatientBySnils(string snils)
         {
             using (var connection = new SqlConnection(connectionString))
             {
@@ -296,7 +388,7 @@ namespace TelegramDoctorBot
             }
         }
 
-        private static async Task ShowSpecialties(long chatId, CancellationToken cancellationToken)
+        private static async Task ShowSpecialties(long chatId)
         {
             var specialties = await GetSpecialties();
             var keyboard = new ReplyKeyboardMarkup(
@@ -305,11 +397,10 @@ namespace TelegramDoctorBot
                 ResizeKeyboard = true,
                 OneTimeKeyboard = true
             };
-            await botClient!.SendTextMessageAsync(
+            await botClient.SendTextMessageAsync(
                 chatId: chatId,
                 text: "Выберите специальность врача:",
-                replyMarkup: keyboard,
-                cancellationToken: cancellationToken);
+                replyMarkup: keyboard);
         }
 
         private static async Task<List<Doctor>> GetDoctorsBySpecialty(string specialty)
@@ -317,12 +408,12 @@ namespace TelegramDoctorBot
             using (var connection = new SqlConnection(connectionString))
             {
                 return (await connection.QueryAsync<Doctor>(
-                    "SELECT UserID, FIO FROM UserCredentialsDB WHERE Speciality = @Specialty", 
+                    "SELECT UserID, FIO FROM UserCredentialsDB WHERE Speciality = @Specialty",
                     new { Specialty = specialty })).ToList();
             }
         }
 
-        private static async Task ShowDoctors(long chatId, string specialty, CancellationToken cancellationToken)
+        private static async Task ShowDoctors(long chatId, string specialty)
         {
             var doctors = await GetDoctorsBySpecialty(specialty);
             var keyboard = new ReplyKeyboardMarkup(
@@ -331,14 +422,13 @@ namespace TelegramDoctorBot
                 ResizeKeyboard = true,
                 OneTimeKeyboard = true
             };
-            await botClient!.SendTextMessageAsync(
+            await botClient.SendTextMessageAsync(
                 chatId: chatId,
                 text: "Выберите врача:",
-                replyMarkup: keyboard,
-                cancellationToken: cancellationToken);
+                replyMarkup: keyboard);
         }
 
-        private static async Task ShowAvailableDates(long chatId, int doctorId, CancellationToken cancellationToken)
+        private static async Task ShowAvailableDates(long chatId, int doctorId)
         {
             var availableDates = new List<DateTime>();
             for (int i = 0; i < 14; i++)
@@ -356,14 +446,13 @@ namespace TelegramDoctorBot
                 ResizeKeyboard = true,
                 OneTimeKeyboard = true
             };
-            await botClient!.SendTextMessageAsync(
+            await botClient.SendTextMessageAsync(
                 chatId: chatId,
                 text: "Выберите дату:",
-                replyMarkup: keyboard,
-                cancellationToken: cancellationToken);
+                replyMarkup: keyboard);
         }
 
-        private static async Task ShowAvailableTimes(long chatId, int doctorId, DateTime date, CancellationToken cancellationToken)
+        private static async Task ShowAvailableTimes(long chatId, int doctorId, DateTime date)
         {
             var bookedTimes = await GetBookedTimes(doctorId, date);
             var availableTimes = new List<string>();
@@ -390,11 +479,10 @@ namespace TelegramDoctorBot
                 ResizeKeyboard = true,
                 OneTimeKeyboard = true
             };
-            await botClient!.SendTextMessageAsync(
+            await botClient.SendTextMessageAsync(
                 chatId: chatId,
                 text: "Выберите время:",
-                replyMarkup: keyboard,
-                cancellationToken: cancellationToken);
+                replyMarkup: keyboard);
         }
 
         private static async Task<List<string>> GetBookedTimes(int doctorId, DateTime date)
@@ -420,16 +508,17 @@ namespace TelegramDoctorBot
             }
         }
 
-        private static async Task CreateVisit(int patientId, int doctorId, DateTime visitDateTime, string? notes)
+        private static async Task CreateVisit(int patientId, int doctorId, DateTime visitDateTime, string notes)
         {
             using (var connection = new SqlConnection(connectionString))
             {
                 await connection.ExecuteAsync(
                     "INSERT INTO Visits (PatientID, EmployeeID, VisitDateTime, Notes, NotificationSent) " +
                     "VALUES (@PatientId, @DoctorId, @VisitDateTime, @Notes, 0)",
-                    new { 
-                        PatientId = patientId, 
-                        DoctorId = doctorId, 
+                    new
+                    {
+                        PatientId = patientId,
+                        DoctorId = doctorId,
                         VisitDateTime = visitDateTime,
                         Notes = notes
                     });
@@ -444,24 +533,23 @@ namespace TelegramDoctorBot
         public int EmployeeID { get; set; }
         public DateTime VisitDateTime { get; set; }
         public DateTime EndDateTime { get; set; }
-        public string? Notes { get; set; }
-        public string FirstName { get; set; } = null!;
-        public string LastName { get; set; } = null!;
-        public string? MiddleName { get; set; }
-        public string DoctorName { get; set; } = null!;
-    }
+        public string Notes { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public string MiddleName { get; set; }
+        public string DoctorName { get; set; }
     }
 
     public class UserState
     {
         public Step CurrentStep { get; set; }
         public int PatientId { get; set; }
-        public string Snils { get; set; } = null!;
-        public string Specialty { get; set; } = null!;
+        public string Snils { get; set; }
+        public string Specialty { get; set; }
         public int DoctorId { get; set; }
         public DateTime SelectedDate { get; set; }
         public DateTime VisitDateTime { get; set; }
-        public string? Notes { get; set; }
+        public string Notes { get; set; }
     }
 
     public enum Step
@@ -478,20 +566,54 @@ namespace TelegramDoctorBot
     public class Person
     {
         public int ID { get; set; }
-        public string FirstName { get; set; } = null!;
-        public string LastName { get; set; } = null!;
-        public string? MiddleName { get; set; }
+        public string FirstName { get; set; }
+        public string LastName { get; set; }
+        public string MiddleName { get; set; }
         public DateTime BirthDate { get; set; }
-        public string? PhoneNumber { get; set; }
-        public string? Gender { get; set; }
-        public string? SNILS { get; set; }
-        public string RegistrationAddress { get; set; } = null!;
-        public string? ActualAddress { get; set; }
+        public string PhoneNumber { get; set; }
+        public string Gender { get; set; }
+        public string SNILS { get; set; }
+        public string RegistrationAddress { get; set; }
+        public string ActualAddress { get; set; }
     }
 
     public class Doctor
     {
         public int UserID { get; set; }
-        public string FIO { get; set; } = null!;
+        public string FIO { get; set; }
     }
 
+    public class Diagnosis
+    {
+        public string DiagnosisName { get; set; }
+        public string Description { get; set; }
+        public DateTime DateCreated { get; set; }
+    }
+
+    public class MedicalReferral
+    {
+        public string ReferralNumber { get; set; }
+        public string Purpose { get; set; }
+        public string Speciality { get; set; }
+        public string ServiceType { get; set; }
+        public DateTime ReferralDate { get; set; }
+    }
+
+    public class Prescription
+    {
+        public string MedicationName { get; set; }
+        public string Dosage { get; set; }
+        public DateTime IssueDate { get; set; }
+        public DateTime? ExpiryDate { get; set; }
+    }
+
+    public class SickLeave
+    {
+        public string Number { get; set; }
+        public string Diagnosis { get; set; }
+        public DateTime StartDate { get; set; }
+        public DateTime EndDate { get; set; }
+        public string Status { get; set; }
+        public string Type { get; set; }
+    }
+}
